@@ -19,15 +19,19 @@ from constants import *  # pylint: disable=wildcard-import
 from melodies_lib import BadNoteException
 from melodies_lib import extract_melodies
 from melodies_lib import Melody
-from melodies_lib import MelodyEncoderDecoder
 from melodies_lib import midi_file_to_melody
-from melodies_lib import OneHotMelodyEncoderDecoder
 from melodies_lib import PolyphonicMelodyException
+
+from melody_encoder_decoder import KeyMelodyEncoderDecoder
+from melody_encoder_decoder import LookbackMelodyEncoderDecoder
+from melody_encoder_decoder import MelodyEncoderDecoder
+from melody_encoder_decoder import OneHotMelodyEncoderDecoder
 
 from midi_io import midi_file_to_sequence_proto
 from midi_io import midi_to_sequence_proto
 from midi_io import MIDIConversionError
 from midi_io import sequence_proto_to_midi_file
+from midi_io import sequence_proto_to_pretty_midi
 
 from midi_synth import fluidsynth
 from midi_synth import synthesize
@@ -41,6 +45,7 @@ from sequence_generator_bundle import GeneratorBundleParseException
 from sequence_generator_bundle import read_bundle_file
 
 from sequences_lib import BadTimeSignatureException
+from sequences_lib import extract_subsequence
 from sequences_lib import MultipleTimeSignatureException
 from sequences_lib import NegativeTimeException
 from sequences_lib import QuantizedSequence
