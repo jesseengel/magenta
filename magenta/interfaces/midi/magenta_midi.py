@@ -65,6 +65,14 @@ tf.app.flags.DEFINE_string(
     'bundle_file',
     None,
     'The location of the bundle file to use.')
+tf.app.flags.DEFINE_bool(
+    'passthrough',
+    False,
+    'Passthrough MIDI from input_port to output_port.')
+tf.app.flags.DEFINE_bool(
+    'play_metronome',
+    False,
+    'Play a metronome during capture phase.')
 
 # A map from a string generator name to its class.
 _GENERATOR_MAP = melody_rnn_sequence_generator.get_generator_map()
@@ -109,21 +117,22 @@ def main(unused_argv):
   if FLAGS.output_port not in midi_hub.get_available_output_ports():
     print "Opening '%s' as a virtual MIDI port for output." % FLAGS.output_port
   hub = midi_hub.MidiHub(FLAGS.input_port, FLAGS.output_port,
-                         midi_hub.TextureType.MONOPHONIC)
+                         midi_hub.TextureType.MONOPHONIC, passthrough=FLAGS.passthrough)
 
   start_call_signal = (
       None if FLAGS.start_call_control_number is None else
-      midi_hub.MidiSignal(control=FLAGS.start_call_control_number, value=0))
+      midi_hub.MidiSignal(control=FLAGS.start_call_control_number, value=127))
   end_call_signal = (
       None if FLAGS.end_call_control_number is None else
-      midi_hub.MidiSignal(control=FLAGS.end_call_control_number, value=0))
+      midi_hub.MidiSignal(control=FLAGS.end_call_control_number, value=127))
   interaction = midi_interaction.CallAndResponseMidiInteraction(
       hub,
       FLAGS.qpm,
       generator,
       phrase_bars=FLAGS.phrase_bars,
       start_call_signal=start_call_signal,
-      end_call_signal=end_call_signal)
+      end_call_signal=end_call_signal,
+      play_metronome=FLAGS.play_metronome)
 
   print ''
   print 'Instructions:'

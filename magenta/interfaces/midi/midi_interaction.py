@@ -136,34 +136,27 @@ class CallAndResponseMidiInteraction(MidiInteraction):
                quarters_per_bar=4,
                phrase_bars=None,
                start_call_signal=None,
-               end_call_signal=None):
+               end_call_signal=None,
+               play_metronome=True):
     super(CallAndResponseMidiInteraction, self).__init__(midi_hub, qpm)
     self._sequence_generator = sequence_generator
     self._quarters_per_bar = quarters_per_bar
     self._phrase_bars = phrase_bars
     self._start_call_signal = start_call_signal
     self._end_call_signal = end_call_signal
+    self._play_metronome = play_metronome
 
   def run(self):
     """The main loop for a real-time call and response interaction."""
 
     # We measure time in units of quarter notes.
     quarter_duration = 60.0 / self._qpm
-    # Start time in quarter notes from the epoch.
-    start_quarters = (time.time() + 1.0) // quarter_duration
-
-    # The number of notes before call stage ends to start generation of
-    # response. Will be automatically adjusted to be as small as possible while
-    # avoiding late response starts.
-    predictahead_quarters = self._MIN_PREDICTAHEAD_QUARTERS
-
-    # Call stage start in quarter notes from the epoch.
-    call_start_quarters = start_quarters
 
     while not self._stop_signal.is_set():
       if self._start_call_signal is not None:
         # Wait for start signal.
         self._midi_hub.wait_for_event(self._start_call_signal)
+        start_time= time.time()
         # Check to see if a stop has been requested.
         if self._stop_signal.is_set():
           break
@@ -171,12 +164,13 @@ class CallAndResponseMidiInteraction(MidiInteraction):
       # Call stage.
 
       # Start the metronome at the beginning of the call stage.
-      self._midi_hub.start_metronome(
-          self._qpm, call_start_quarters * quarter_duration)
+      if self._play_metronome:
+        self._midi_hub.start_metronome(
+            self._qpm, start_time)
 
       # Start a captor at the beginning of the call stage.
       captor = self._midi_hub.start_capture(
-          self._qpm, call_start_quarters * quarter_duration)
+          self._qpm, start_time)
 
       if self._phrase_bars is not None:
         # The duration of the call stage in quarter notes.
@@ -187,21 +181,18 @@ class CallAndResponseMidiInteraction(MidiInteraction):
         # The duration of the call stage in quarter notes.
         # We end the call stage at the end of the next bar that is at least
         # `predicathead_quarters` in the future.
-        call_quarters = time.time() // quarter_duration - call_start_quarters
-        remaining_call_quarters = -call_quarters % self._quarters_per_bar
-        if remaining_call_quarters < predictahead_quarters:
-          remaining_call_quarters += self._quarters_per_bar
-        call_quarters += remaining_call_quarters
+        end_time = time.time()
+        call_duration = ((time.time() - start_time) // quarter_duration) * quarter_duration
+        quantized_end_time = start_time + call_duration
 
-      # Set the metronome to stop at the appropriate time.
-      self._midi_hub.stop_metronome(
-          (call_quarters + call_start_quarters) * quarter_duration,
-          block=False)
+      # Set the metronome to stop at the appropriate time
+      if self._play_metronome:
+        self._midi_hub.stop_metronome(
+            quantized_end_time,
+            block=False)
 
       # Stop the captor at the appropriate time.
-      capture_quarters = call_quarters - predictahead_quarters
-      captor.stop(stop_time=(
-          (capture_quarters + call_start_quarters) * quarter_duration))
+      captor.stop(stop_time=quantized_end_time)
       captured_sequence = captor.captured_sequence()
 
       # Check to see if a stop has been requested during capture.
@@ -209,13 +200,13 @@ class CallAndResponseMidiInteraction(MidiInteraction):
         break
 
       # Generate sequence.
-      response_start_quarters = call_quarters + call_start_quarters
-      response_end_quarters = 2 * call_quarters + call_start_quarters
-
+      response_start_time = quantized_end_time
+      response_end_time = quantized_end_time + call_duration
+ 
       generator_options = generator_pb2.GeneratorOptions()
       generator_options.generate_sections.add(
-          start_time=response_start_quarters * quarter_duration,
-          end_time=response_end_quarters * quarter_duration)
+          start_time=response_start_time,
+          end_time=response_end_time)
 
       # Generate response.
       response_sequence = self._sequence_generator.generate(
@@ -228,23 +219,6 @@ class CallAndResponseMidiInteraction(MidiInteraction):
       # Response stage.
       # Start response playback.
       self._midi_hub.start_playback(response_sequence)
-
-      # Compute remaining time after generation before the response stage
-      # starts, updating `predictahead_quarters` appropriately.
-      remaining_time = response_start_quarters * quarter_duration - time.time()
-      if remaining_time > (predictahead_quarters * quarter_duration):
-        predictahead_quarters = max(self._MIN_PREDICTAHEAD_QUARTERS,
-                                    predictahead_quarters - 1)
-        tf.logging.info('Generator is ahead by %.3f seconds. '
-                        'Decreasing predictahead_quarters to %d.',
-                        remaining_time, predictahead_quarters)
-      elif remaining_time < 0:
-        predictahead_quarters += 1
-        tf.logging.info('Generator is lagging by %.3f seconds. '
-                        'Increasing predictahead_quarters to %d.',
-                        -remaining_time, predictahead_quarters)
-
-      call_start_quarters = response_end_quarters
 
   def stop(self):
     if self._start_call_signal is not None:
